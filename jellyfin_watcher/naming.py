@@ -152,9 +152,15 @@ def _build_tv_ops(src_dir: Path, dst_root: Path, show_title: str, reserved: set[
             special_numbers[src] = i
 
     video_targets: dict[Path, Path] = {}
+    extra_counter = 1
+    extras_dir = dst_root / show / "extras"
     for v, ep in inferred.items():
         if ep is None:
-            log.warning("tv_unparseable", "Could not parse episode", file=v.name)
+            log.info("tv_extra_video", "Unparseable video treated as extra", file=v.name)
+            dst = unique_path(extras_dir / f"{show} - extra {extra_counter:02d}{v.suffix.lower()}", reserved, v)
+            ops.append(Op(v, dst, "tv_extra_video"))
+            video_targets[v] = dst
+            extra_counter += 1
             continue
         ep_num = special_numbers.get(v, ep.episode)
         if ep.end_episode is not None:
@@ -170,10 +176,8 @@ def _build_tv_ops(src_dir: Path, dst_root: Path, show_title: str, reserved: set[
         if not src.is_file() or src.suffix.lower() not in _MEDIA_EXTS or src in videos:
             continue
         video = _closest_video(src, videos)
-        if not video or video not in video_targets:
-            continue
-        target_dir = video_targets[video].parent
-        base = video_targets[video].stem
+        target_dir = video_targets[video].parent if (video and video in video_targets) else extras_dir
+        base = video_targets[video].stem if (video and video in video_targets) else f"{show} - extra"
         ext = src.suffix.lower()
         if ext in _SUB_EXTS:
             lang = ".en" if re.search(r"(?i)(eng|english|_en|\ben\b)", src.name) else ""

@@ -15,7 +15,7 @@ from jellyfin_watcher.metadata import (
     TMDBClient,
     classify_from_metadata,
 )
-from jellyfin_watcher.reorg_bridge import clean_spaces, infer_episode, normalize_show
+from jellyfin_watcher.reorg_bridge import clean_spaces, infer_episode, normalize_show, strip_bracket_noise, strip_noise
 from jellyfin_watcher.search import SearchChain
 from jellyfin_watcher.llm import LLMClassifier
 
@@ -56,15 +56,24 @@ def gather_folder_info(folder: Path) -> FolderInfo:
     return FolderInfo(folder.name, sorted(videos), years, has_ep, anime_hint)
 
 
+def _clean_title_for_search(raw: str) -> str:
+    s = strip_bracket_noise(raw)
+    s = strip_noise(s)
+    # Remove year from title for search.
+    s = re.sub(r"(?i)\(\d{4}\)", "", s)
+    # Remove trailing season/episode noise.
+    s = re.sub(r"(?i)\bS\d{1,2}(?:\s*[-+]\s*S\d{1,2})?.*$", "", s)
+    s = re.sub(r"(?i)\bSeason\s*\d{1,2}\b.*$", "", s)
+    s = re.sub(r"(?i)\b\(\d{1,3}\s*-\s*\d{1,3}\)\b.*$", "", s)
+    return clean_spaces(s).strip()
+
+
 def _best_title_guess(info: FolderInfo) -> tuple[str, str | None]:
     year = info.years[0] if info.years else None
-    # Prefer folder name, stripped of trailing season/episode noise.
-    name = clean_spaces(info.folder_name)
-    name = re.sub(r"(?i)\bS\d{1,2}(?:\s*[-+]\s*S\d{1,2})?.*$", "", name)
-    name = re.sub(r"(?i)\bSeason\s*\d{1,2}\b.*$", "", name)
-    name = re.sub(r"(?i)\b\(\d{1,3}\s*-\s*\d{1,3}\)\b.*$", "", name)
-    # Remove year from title for search.
-    title = re.sub(r"(?i)\(\d{4}\)", "", name).strip()
+    title = _clean_title_for_search(info.folder_name)
+    if not title:
+        # Fallback to first video filename stem if folder name is pure noise.
+        title = _clean_title_for_search(info.video_files[0].stem) if info.video_files else ""
     return title, year
 
 
